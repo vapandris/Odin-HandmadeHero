@@ -30,7 +30,14 @@ windowCallback :: proc "system" (
             winWidth  := paint.rcPaint.right - paint.rcPaint.left
             winHeight := paint.rcPaint.bottom - paint.rcPaint.top
 
-            win.PatBlt(deviceContext, winX, winY, winWidth, winHeight, win.BLACKNESS)
+            @(static) toggle := true
+            if toggle {
+                toggle = !toggle
+                win.PatBlt(deviceContext, winX, winY, winWidth, winHeight, win.BLACKNESS)
+            } else {
+                toggle = !toggle
+                win.PatBlt(deviceContext, winX, winY, winWidth, winHeight, win.WHITENESS)
+            }
         }
         case: {
             result = win.DefWindowProcA(window, message, wParam, lParam)
