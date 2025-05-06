@@ -1,12 +1,13 @@
 package hmh
 
 import win "core:sys/windows"
+import "core:mem"
 
 running: bool = true
 bitmapInfo: win.BITMAPINFO
 bitmapMemory: win.VOID
-bitmapHandle: win.HBITMAP
-compatibleDC: win.HDC
+bitmapHeight: win.LONG
+bitmapWidth:  win.LONG
 
 Win32_Rect :: struct {
     pos:  [2]win.LONG,
@@ -31,35 +32,47 @@ Win32_GetClientRect :: proc "system" (window: win.HWND) -> Win32_Rect {
 
 // DIB is Device Independent Bitmap
 Win32_ResizeDIBSection :: proc "system" (windowSize: [2]win.LONG) {
-    if bitmapHandle != nil {
-        win.DeleteObject(win.HGDIOBJ(bitmapHandle))
-    }
-    if compatibleDC == nil {
-        compatibleDC = win.CreateCompatibleDC(nil)
-    }
+    bitmapWidth = windowSize.x
+    bitmapHeight = windowSize.y
 
     bitmapInfo.bmiHeader.biSize = size_of(bitmapInfo.bmiHeader)
-    bitmapInfo.bmiHeader.biWidth = windowSize.x
-    bitmapInfo.bmiHeader.biHeight = windowSize.y
+    bitmapInfo.bmiHeader.biWidth = bitmapWidth
+    bitmapInfo.bmiHeader.biHeight = bitmapHeight
     bitmapInfo.bmiHeader.biPlanes = 1
     bitmapInfo.bmiHeader.biBitCount = 32
     bitmapInfo.bmiHeader.biCompression = win.BI_RGB
 
-    bitmapHandle = win.CreateDIBSection(
-        compatibleDC,
-        &bitmapInfo,
-        win.DIB_RGB_COLORS,
-        &bitmapMemory,
-        nil, 0,
-    )
 
+    BYTES_PER_PX :: 4
+    bitmapMemorySize : win.SIZE_T = win.SIZE_T(BYTES_PER_PX * bitmapWidth * bitmapHeight)
+    if bitmapMemory != nil do win.VirtualFree(bitmapMemory, 0, win.MEM_RELEASE)
+    bitmapMemory = win.VirtualAlloc(nil, bitmapMemorySize, win.MEM_COMMIT, win.PAGE_READWRITE)
+
+    pitch := windowSize.x*BYTES_PER_PX
+    row := cast(^u8)bitmapMemory
+    for y in 0..<bitmapHeight {
+        pixel := cast([^]u8)row
+        for x in 0..<bitmapWidth {
+            // BLUE
+            pixel[0] = cast(u8)x
+            // RED
+            pixel[1] = cast(u8)y
+            // GREEN
+            pixel[2] = cast(u8)(x*y)
+            // PADDING
+            pixel[3] = 0
+
+            pixel = mem.ptr_offset(pixel, 4)
+        }
+        row = mem.ptr_offset(row, pitch)
+    }
 }
 
 Win32_UpdateWindow :: proc "system" (deviceContext: win.HDC, windowRect: Win32_Rect) {
     win.StretchDIBits(
         deviceContext,
-        windowRect.pos.x, windowRect.pos.y, windowRect.size.x, windowRect.size.y,
-        windowRect.pos.x, windowRect.pos.y, windowRect.size.x, windowRect.size.y,
+        0, 0, bitmapWidth, bitmapHeight,
+        0, 0, windowRect.size.x, windowRect.size.y,
         bitmapMemory,
         &bitmapInfo,
         win.DIB_RGB_COLORS,
