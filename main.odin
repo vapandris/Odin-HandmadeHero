@@ -8,10 +8,34 @@ bitmapInfo: win.BITMAPINFO
 bitmapMemory: win.VOID
 bitmapHeight: win.LONG
 bitmapWidth:  win.LONG
+globalWindowSize: [2]win.LONG
 
 Win32_Rect :: struct {
     pos:  [2]win.LONG,
     size: [2]win.LONG,
+}
+
+Win32_RenderTrippyShtuff :: proc "system" (offset: [2]i32) {
+    BYTES_PER_PX :: 4
+
+    pitch := globalWindowSize.x*BYTES_PER_PX
+    row := cast(^u8)bitmapMemory
+    for y in 0..<bitmapHeight {
+        pixel := cast(^u32)row
+        for x in 0..<bitmapWidth {
+            // BLUE
+            blue  := cast(u8)(x + offset.x)
+            red   := cast(u8)(x*y)
+            green := cast(u8)(y + offset.y)
+
+            pixel^ = u32(red) << 16
+            pixel^ |= u32(green) << 8
+            pixel^ |= u32(blue) << 0
+
+            pixel = mem.ptr_offset(pixel, 1)
+        }
+        row = mem.ptr_offset(row, pitch)
+    }
 }
 
 Win32_GetRect :: #force_inline proc "system" (rect: win.RECT) -> Win32_Rect {
@@ -32,8 +56,10 @@ Win32_GetClientRect :: proc "system" (window: win.HWND) -> Win32_Rect {
 
 // DIB is Device Independent Bitmap
 Win32_ResizeDIBSection :: proc "system" (windowSize: [2]win.LONG) {
+    globalWindowSize = windowSize
     bitmapWidth = windowSize.x
     bitmapHeight = windowSize.y
+
 
     bitmapInfo.bmiHeader.biSize = size_of(bitmapInfo.bmiHeader)
     bitmapInfo.bmiHeader.biWidth = bitmapWidth
@@ -47,25 +73,6 @@ Win32_ResizeDIBSection :: proc "system" (windowSize: [2]win.LONG) {
     bitmapMemorySize : win.SIZE_T = win.SIZE_T(BYTES_PER_PX * bitmapWidth * bitmapHeight)
     if bitmapMemory != nil do win.VirtualFree(bitmapMemory, 0, win.MEM_RELEASE)
     bitmapMemory = win.VirtualAlloc(nil, bitmapMemorySize, win.MEM_COMMIT, win.PAGE_READWRITE)
-
-    pitch := windowSize.x*BYTES_PER_PX
-    row := cast(^u8)bitmapMemory
-    for y in 0..<bitmapHeight {
-        pixel := cast([^]u8)row
-        for x in 0..<bitmapWidth {
-            // BLUE
-            pixel[0] = cast(u8)x
-            // RED
-            pixel[1] = cast(u8)y
-            // GREEN
-            pixel[2] = cast(u8)(x*y)
-            // PADDING
-            pixel[3] = 0
-
-            pixel = mem.ptr_offset(pixel, 4)
-        }
-        row = mem.ptr_offset(row, pitch)
-    }
 }
 
 Win32_UpdateWindow :: proc "system" (deviceContext: win.HDC, windowRect: Win32_Rect) {
@@ -147,13 +154,28 @@ main :: proc() {
         if window == nil do panic("[!] Failed to create window!")
 
         message: win.MSG
+        offset := [2]i32{}
         for running {
-            if msgResult := win.GetMessageW(&message, nil, 0, 0); i32(msgResult) > 0 {
+            for win.PeekMessageW(&message, nil, 0, 0, win.PM_REMOVE) {
+                if message.message == win.WM_QUIT do running = false
+
                 win.TranslateMessage(&message)
                 win.DispatchMessageW(&message)
+            }
 
-            } else do break
+            offset.x += 1
+            if offset.x == 255 {
+                offset.x = 0
+                offset.y += 1
+            }
 
+            if offset.y == 255 {
+                offset = {}
+            }
+            Win32_RenderTrippyShtuff(offset)
+
+            deviceContext := win.GetDC(window)
+            Win32_UpdateWindow(deviceContext, Win32_GetClientRect(window))
         }
     } else do panic("[!] Failed to register window")
 }
