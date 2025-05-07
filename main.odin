@@ -4,10 +4,15 @@ import win "core:sys/windows"
 import "core:mem"
 
 running: bool = true
-bitmapInfo: win.BITMAPINFO
-bitmapMemory: win.VOID
-bitmapHeight: win.LONG
-bitmapWidth:  win.LONG
+
+Win32_OffscreenBuffer :: struct {
+    info: win.BITMAPINFO,
+    memory: win.VOID,
+    height: win.LONG,
+    width:  win.LONG,
+    pitch:  win.LONG,
+}
+offscreenBuffer: Win32_OffscreenBuffer
 globalWindowSize: [2]win.LONG
 
 Win32_Rect :: struct {
@@ -15,14 +20,11 @@ Win32_Rect :: struct {
     size: [2]win.LONG,
 }
 
-Win32_RenderTrippyShtuff :: proc "system" (offset: [2]i32) {
-    BYTES_PER_PX :: 4
-
-    pitch := globalWindowSize.x*BYTES_PER_PX
-    row := cast(^u8)bitmapMemory
-    for y in 0..<bitmapHeight {
+Win32_RenderTrippyShtuff :: proc "system" (buffer: Win32_OffscreenBuffer, offset: [2]i32) {
+    row := cast(^u8)buffer.memory
+    for y in 0..<buffer.height {
         pixel := cast(^u32)row
-        for x in 0..<bitmapWidth {
+        for x in 0..<buffer.width {
             // BLUE
             blue  := cast(u8)(x + offset.x)
             red   := cast(u8)(x*y)
@@ -34,7 +36,7 @@ Win32_RenderTrippyShtuff :: proc "system" (offset: [2]i32) {
 
             pixel = mem.ptr_offset(pixel, 1)
         }
-        row = mem.ptr_offset(row, pitch)
+        row = mem.ptr_offset(row, buffer.pitch)
     }
 }
 
@@ -55,33 +57,35 @@ Win32_GetClientRect :: proc "system" (window: win.HWND) -> Win32_Rect {
 }
 
 // DIB is Device Independent Bitmap
-Win32_ResizeDIBSection :: proc "system" (windowSize: [2]win.LONG) {
+Win32_ResizeDIBSection :: proc "system" (buffer: ^Win32_OffscreenBuffer, windowSize: [2]win.LONG) {
     globalWindowSize = windowSize
-    bitmapWidth = windowSize.x
-    bitmapHeight = windowSize.y
+    buffer.width = windowSize.x
+    buffer.height = windowSize.y
 
 
-    bitmapInfo.bmiHeader.biSize = size_of(bitmapInfo.bmiHeader)
-    bitmapInfo.bmiHeader.biWidth = bitmapWidth
-    bitmapInfo.bmiHeader.biHeight = bitmapHeight
-    bitmapInfo.bmiHeader.biPlanes = 1
-    bitmapInfo.bmiHeader.biBitCount = 32
-    bitmapInfo.bmiHeader.biCompression = win.BI_RGB
+    buffer.info.bmiHeader.biSize = size_of(buffer.info.bmiHeader)
+    buffer.info.bmiHeader.biWidth = buffer.width
+    buffer.info.bmiHeader.biHeight = buffer.height
+    buffer.info.bmiHeader.biPlanes = 1
+    buffer.info.bmiHeader.biBitCount = 32
+    buffer.info.bmiHeader.biCompression = win.BI_RGB
 
 
     BYTES_PER_PX :: 4
-    bitmapMemorySize : win.SIZE_T = win.SIZE_T(BYTES_PER_PX * bitmapWidth * bitmapHeight)
-    if bitmapMemory != nil do win.VirtualFree(bitmapMemory, 0, win.MEM_RELEASE)
-    bitmapMemory = win.VirtualAlloc(nil, bitmapMemorySize, win.MEM_COMMIT, win.PAGE_READWRITE)
+    bitmapMemorySize : win.SIZE_T = win.SIZE_T(BYTES_PER_PX * buffer.width * buffer.height)
+    if buffer.memory != nil do win.VirtualFree(buffer.memory, 0, win.MEM_RELEASE)
+    buffer.memory = win.VirtualAlloc(nil, bitmapMemorySize, win.MEM_COMMIT, win.PAGE_READWRITE)
+
+    buffer.pitch = globalWindowSize.x*BYTES_PER_PX
 }
 
-Win32_UpdateWindow :: proc "system" (deviceContext: win.HDC, windowRect: Win32_Rect) {
+Win32_UpdateWindow :: proc "system" (buffer: ^Win32_OffscreenBuffer, deviceContext: win.HDC, clientRect: Win32_Rect) {
     win.StretchDIBits(
         deviceContext,
-        0, 0, bitmapWidth, bitmapHeight,
-        0, 0, windowRect.size.x, windowRect.size.y,
-        bitmapMemory,
-        &bitmapInfo,
+        0, 0, clientRect.size.x, clientRect.size.y,
+        0, 0, buffer.width, buffer.height,
+        buffer.memory,
+        &buffer.info,
         win.DIB_RGB_COLORS,
         win.SRCCOPY,
     )
@@ -94,7 +98,6 @@ Win32_WindowCallback :: proc "system" (
         lParam:  win.LPARAM) -> (result: win.LRESULT) {
     switch message {
         case win.WM_SIZE: {
-            Win32_ResizeDIBSection(Win32_GetClientRect(window).size)
             win.OutputDebugStringA("WM_SIZE")
         }
         case win.WM_DESTROY: {
@@ -114,7 +117,7 @@ Win32_WindowCallback :: proc "system" (
             defer win.EndPaint(window, &paint)
 
             rect := Win32_GetRect(paint.rcPaint)
-            Win32_UpdateWindow(deviceContext, rect)
+            Win32_UpdateWindow(&offscreenBuffer, deviceContext, Win32_GetClientRect(window))
         }
         case: {
             result = win.DefWindowProcW(window, message, wParam, lParam)
@@ -125,6 +128,8 @@ Win32_WindowCallback :: proc "system" (
 }
 
 main :: proc() {
+    Win32_ResizeDIBSection(&offscreenBuffer, {1280, 720})
+
     currInstance := win.HINSTANCE(win.GetModuleHandleW(nil))
     assert(currInstance != nil, "[!] Failed to fetch current instance")
 
@@ -172,10 +177,10 @@ main :: proc() {
             if offset.y == 255 {
                 offset = {}
             }
-            Win32_RenderTrippyShtuff(offset)
+            Win32_RenderTrippyShtuff(offscreenBuffer, offset)
 
             deviceContext := win.GetDC(window)
-            Win32_UpdateWindow(deviceContext, Win32_GetClientRect(window))
+            Win32_UpdateWindow(&offscreenBuffer, deviceContext, Win32_GetClientRect(window))
         }
     } else do panic("[!] Failed to register window")
 }
