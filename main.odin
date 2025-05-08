@@ -3,7 +3,7 @@ package hmh
 import win "core:sys/windows"
 import "core:mem"
 
-running: bool = true
+Running: bool = true
 
 Win32_OffscreenBuffer :: struct {
     info: win.BITMAPINFO,
@@ -12,23 +12,23 @@ Win32_OffscreenBuffer :: struct {
     width:  win.LONG,
     pitch:  win.LONG,
 }
-offscreenBuffer: Win32_OffscreenBuffer
-globalWindowSize: [2]win.LONG
+OffscreenBuffer: Win32_OffscreenBuffer
+WindowSize: [2]win.LONG
 
 Win32_Rect :: struct {
     pos:  [2]win.LONG,
     size: [2]win.LONG,
 }
 
-Win32_RenderTrippyShtuff :: proc "system" (buffer: Win32_OffscreenBuffer, offset: [2]i32) {
+Win32_RenderTrippyShtuff :: proc "system" (buffer: Win32_OffscreenBuffer, offset: [2]u8) {
     row := cast(^u8)buffer.memory
     for y in 0..<buffer.height {
         pixel := cast(^u32)row
         for x in 0..<buffer.width {
             // BLUE
-            blue  := cast(u8)(x + offset.x)
+            blue  := cast(u8)x + offset.x
             red   := cast(u8)(x*y)
-            green := cast(u8)(y + offset.y)
+            green := cast(u8)y + offset.y
 
             pixel^ = u32(red) << 16
             pixel^ |= u32(green) << 8
@@ -58,7 +58,7 @@ Win32_GetClientRect :: proc "system" (window: win.HWND) -> Win32_Rect {
 
 // DIB is Device Independent Bitmap
 Win32_ResizeDIBSection :: proc "system" (buffer: ^Win32_OffscreenBuffer, windowSize: [2]win.LONG) {
-    globalWindowSize = windowSize
+    WindowSize = windowSize
     buffer.width = windowSize.x
     buffer.height = windowSize.y
 
@@ -76,7 +76,7 @@ Win32_ResizeDIBSection :: proc "system" (buffer: ^Win32_OffscreenBuffer, windowS
     if buffer.memory != nil do win.VirtualFree(buffer.memory, 0, win.MEM_RELEASE)
     buffer.memory = win.VirtualAlloc(nil, bitmapMemorySize, win.MEM_COMMIT, win.PAGE_READWRITE)
 
-    buffer.pitch = globalWindowSize.x*BYTES_PER_PX
+    buffer.pitch = WindowSize.x*BYTES_PER_PX
 }
 
 Win32_UpdateWindow :: proc "system" (buffer: ^Win32_OffscreenBuffer, deviceContext: win.HDC, clientRect: Win32_Rect) {
@@ -97,38 +97,56 @@ Win32_WindowCallback :: proc "system" (
         wParam:  win.WPARAM,
         lParam:  win.LPARAM) -> (result: win.LRESULT) {
     switch message {
-        case win.WM_SIZE: {
-            win.OutputDebugStringA("WM_SIZE")
-        }
-        case win.WM_DESTROY: {
-            running = false
-            win.OutputDebugStringA("WM_DESTROY")
-        }
-        case win.WM_CLOSE: {
-            running = false
-            win.OutputDebugStringA("WM_CLOSE")
-        }
-        case win.WM_ACTIVATEAPP: {
-            win.OutputDebugStringA("WM_ACTIVATEAPP")
-        }
-        case win.WM_PAINT: {
-            paint: win.PAINTSTRUCT
-            deviceContext := win.BeginPaint(window, &paint)
-            defer win.EndPaint(window, &paint)
+    case win.WM_SIZE: 
+        win.OutputDebugStringA("WM_SIZE")
 
-            rect := Win32_GetRect(paint.rcPaint)
-            Win32_UpdateWindow(&offscreenBuffer, deviceContext, Win32_GetClientRect(window))
+    case win.WM_DESTROY: 
+        Running = false
+        win.OutputDebugStringA("WM_DESTROY")
+
+    case win.WM_KEYDOWN:
+    case win.WM_KEYUP:
+        keycode := u32(wParam)
+        wasDown := (lParam & (1 << 30) != 0)
+        isDown  := (lParam & (1 << 31) == 0)
+
+        // Only process keyup, when it wasn't down previous frame, and now it is, or reversed.
+        if wasDown == isDown do break
+
+        if keycode == 'W' {
+            win.OutputDebugStringA("W PRESSED")
+            if wasDown do win.OutputDebugStringA("W & WASDOWN")
         }
-        case: {
-            result = win.DefWindowProcW(window, message, wParam, lParam)
+        if keycode == win.VK_ESCAPE {
+            Running = false
         }
+    case win.WM_SYSKEYDOWN:
+    case win.WM_SYSKEYUP:
+
+    case win.WM_CLOSE: 
+        Running = false
+        win.OutputDebugStringA("WM_CLOSE")
+
+    case win.WM_ACTIVATEAPP: 
+        win.OutputDebugStringA("WM_ACTIVATEAPP")
+
+    case win.WM_PAINT: 
+        paint: win.PAINTSTRUCT
+        deviceContext := win.BeginPaint(window, &paint)
+        defer win.EndPaint(window, &paint)
+
+        rect := Win32_GetRect(paint.rcPaint)
+        Win32_UpdateWindow(&OffscreenBuffer, deviceContext, Win32_GetClientRect(window))
+
+    case:
+        result = win.DefWindowProcW(window, message, wParam, lParam)
     }
 
     return result
 }
 
 main :: proc() {
-    Win32_ResizeDIBSection(&offscreenBuffer, {1280, 720})
+    Win32_ResizeDIBSection(&OffscreenBuffer, {1280, 720})
 
     currInstance := win.HINSTANCE(win.GetModuleHandleW(nil))
     assert(currInstance != nil, "[!] Failed to fetch current instance")
@@ -159,28 +177,49 @@ main :: proc() {
         if window == nil do panic("[!] Failed to create window!")
 
         message: win.MSG
-        offset := [2]i32{}
-        for running {
+        offset := [2]u8{}
+        for Running {
             for win.PeekMessageW(&message, nil, 0, 0, win.PM_REMOVE) {
-                if message.message == win.WM_QUIT do running = false
+                if message.message == win.WM_QUIT do Running = false
 
                 win.TranslateMessage(&message)
                 win.DispatchMessageW(&message)
             }
 
-            offset.x += 1
-            if offset.x == 255 {
-                offset.x = 0
-                offset.y += 1
-            }
+            for controlIndex: win.XUSER; controlIndex < cast(win.XUSER)win.XUSER_MAX_COUNT; controlIndex+=cast(win.XUSER)1 {
+                controllerState: win.XINPUT_STATE
+                sysError := win.XInputGetState(controlIndex, &controllerState)
 
-            if offset.y == 255 {
-                offset = {}
+                if sysError == .SUCCESS {
+                    // controller plugged in
+                    gamepad := &controllerState.Gamepad
+
+                    up              := .DPAD_UP in gamepad.wButtons
+                    down            := .DPAD_DOWN in gamepad.wButtons
+                    left            := .DPAD_LEFT in gamepad.wButtons
+                    right           := .DPAD_RIGHT in gamepad.wButtons
+                    start           := .START in gamepad.wButtons
+                    back            := .BACK in gamepad.wButtons
+                    leftShoulder    := .LEFT_SHOULDER in gamepad.wButtons
+                    rightShoulder   := .RIGHT_SHOULDER in gamepad.wButtons
+                    aButton         := .A in gamepad.wButtons
+                    bButton         := .B in gamepad.wButtons
+                    xButton         := .X in gamepad.wButtons
+                    yButton         := .Y in gamepad.wButtons
+
+                    stickX := gamepad.sThumbLX
+                    stickY := gamepad.sThumbLY
+
+                } else {
+                    // controller not available
+                }
             }
-            Win32_RenderTrippyShtuff(offscreenBuffer, offset)
 
             deviceContext := win.GetDC(window)
-            Win32_UpdateWindow(&offscreenBuffer, deviceContext, Win32_GetClientRect(window))
+            Win32_RenderTrippyShtuff(OffscreenBuffer, offset)
+            Win32_UpdateWindow(&OffscreenBuffer, deviceContext, Win32_GetClientRect(window))
+
+            offset += {1, 1}
         }
     } else do panic("[!] Failed to register window")
 }
