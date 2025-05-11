@@ -20,6 +20,15 @@ Win32_Rect :: struct {
     size: [2]win.LONG,
 }
 
+DirectSoundCreate :: #type proc "system" (win.LPCGUID, rawptr, win.LPUNKNOWN) -> win.HRESULT
+Win32_InitDSound :: proc () {
+    directSoundLib := win.LoadLibraryW(win.L("dsound.dll"))
+    if directSoundLib == nil do return
+
+    directSoundCreate := cast(DirectSoundCreate)win.GetProcAddress(directSoundLib, "DirectSoundCreate")
+    if directSoundCreate == nil do return
+}
+
 Win32_RenderTrippyShtuff :: proc "system" (buffer: Win32_OffscreenBuffer, offset: [2]u8) {
     row := cast(^u8)buffer.memory
     for y in 0..<buffer.height {
@@ -104,24 +113,31 @@ Win32_WindowCallback :: proc "system" (
         Running = false
         win.OutputDebugStringA("WM_DESTROY")
 
-    case win.WM_KEYDOWN:
+    case win.WM_SYSKEYDOWN: fallthrough
+    case win.WM_SYSKEYUP:   fallthrough
+    case win.WM_KEYDOWN:    fallthrough
     case win.WM_KEYUP:
         keycode := u32(wParam)
-        wasDown := (lParam & (1 << 30) != 0)
-        isDown  := (lParam & (1 << 31) == 0)
+        wasDown := (lParam & (1 << 30)) != 0
+        isDown  := (lParam & (1 << 31)) == 0
 
         // Only process keyup, when it wasn't down previous frame, and now it is, or reversed.
-        if wasDown == isDown do break
-
-        if keycode == 'W' {
-            win.OutputDebugStringA("W PRESSED")
-            if wasDown do win.OutputDebugStringA("W & WASDOWN")
+        if wasDown != isDown {
+            if keycode == 'W' {
+                win.OutputDebugStringA("W PRESSED")
+                if wasDown do win.OutputDebugStringA("W & WASDOWN")
+            }
+            if keycode == win.VK_ESCAPE {
+                Running = false
+            }
         }
-        if keycode == win.VK_ESCAPE {
+
+        altKeyWasDown := bool(lParam & (1 << 29))
+        if keycode == win.VK_F4 && altKeyWasDown {
             Running = false
         }
-    case win.WM_SYSKEYDOWN:
-    case win.WM_SYSKEYUP:
+
+
 
     case win.WM_CLOSE: 
         Running = false
@@ -175,6 +191,8 @@ main :: proc() {
         )
 
         if window == nil do panic("[!] Failed to create window!")
+
+        Win32_InitDSound()
 
         message: win.MSG
         offset := [2]u8{}
