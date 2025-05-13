@@ -2,6 +2,7 @@ package hmh
 
 import win "core:sys/windows"
 import "core:mem"
+import "core:fmt"
 
 Running: bool = true
 
@@ -162,6 +163,9 @@ Win32_WindowCallback :: proc "system" (
 }
 
 main :: proc() {
+    performanceCountPerSecond: win.LARGE_INTEGER
+    win.QueryPerformanceFrequency(&performanceCountPerSecond)
+
     Win32_ResizeDIBSection(&OffscreenBuffer, {1280, 720})
 
     currInstance := win.HINSTANCE(win.GetModuleHandleW(nil))
@@ -193,6 +197,9 @@ main :: proc() {
         if window == nil do panic("[!] Failed to create window!")
 
         Win32_InitDSound()
+
+        latestCounter: win.LARGE_INTEGER
+        win.QueryPerformanceCounter(&latestCounter)
 
         message: win.MSG
         offset := [2]u8{}
@@ -238,6 +245,16 @@ main :: proc() {
             Win32_UpdateWindow(&OffscreenBuffer, deviceContext, Win32_GetClientRect(window))
 
             offset += {1, 1}
+
+            endCounter: win.LARGE_INTEGER
+            win.QueryPerformanceCounter(&endCounter)
+            elapsedCounter := endCounter - latestCounter
+
+            millisecondsPerFrame := (1000*elapsedCounter) / performanceCountPerSecond
+            framesPerSecond := performanceCountPerSecond / elapsedCounter
+            fmt.println(millisecondsPerFrame, "ms/Frame\t|\t", framesPerSecond, "FPS")
+
+            latestCounter = endCounter
         }
     } else do panic("[!] Failed to register window")
 }
