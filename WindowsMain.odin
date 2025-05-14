@@ -242,7 +242,14 @@ main :: proc() {
             }
 
             deviceContext := win.GetDC(window)
-            Win32_RenderTrippyShtuff(OffscreenBuffer, offset)
+            Game_UpdateAndRender(
+                Game_OffscreenBuffer{
+                    memory = OffscreenBuffer.memory,
+                    height = OffscreenBuffer.height,
+                    width  = OffscreenBuffer.width,
+                    pitch  = OffscreenBuffer.pitch,
+                },
+            )
             Win32_UpdateWindow(&OffscreenBuffer, deviceContext, Win32_GetClientRect(window))
 
             offset += {1, 1}
