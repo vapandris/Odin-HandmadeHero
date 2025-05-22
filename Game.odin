@@ -10,8 +10,31 @@ Game_OffscreenBuffer :: struct {
     pitch:  i32,
 }
 
-Game_UpdateAndRender :: proc(buffer: Game_OffscreenBuffer) {
-    offset: [2]u8 /* TODO: make it change over time mayhaps? */
+Game_Key :: enum {
+    UP,
+    DOWN,
+    LEFT,
+    RIGHT,
+}
+
+Game_ButtonState :: struct {
+    halfTransitionTime: u8,
+    endedDown: bool,
+}
+
+Game_KeyInput :: struct {
+    keys: [Game_Key]Game_ButtonState,
+}
+
+Game_UpdateAndRender :: proc(buffer: Game_OffscreenBuffer, input: Game_KeyInput) {
+    @static offset: [2]u8
+
+    keys := input.keys
+    if keys[.UP].endedDown          do offset.y -= 1
+    else if keys[.DOWN].endedDown   do offset.y += 1
+    if keys[.RIGHT].endedDown       do offset.x -= 1
+    else if keys[.LEFT].endedDown   do offset.x += 1
+
     Game_RenderTrippyShtuff(buffer, offset)
 
 }

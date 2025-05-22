@@ -102,6 +102,9 @@ Win32_UpdateWindow :: proc "system" (buffer: ^Win32_OffscreenBuffer, deviceConte
     )
 }
 
+NewInput: Game_KeyInput
+OldInput: Game_KeyInput
+
 Win32_WindowCallback :: proc "system" (
         window:  win.HWND,
         message: win.UINT,
@@ -125,10 +128,10 @@ Win32_WindowCallback :: proc "system" (
 
         // Only process keyup, when it wasn't down previous frame, and now it is, or reversed.
         if wasDown != isDown {
-            if keycode == 'W' {
-                win.OutputDebugStringA("W PRESSED")
-                if wasDown do win.OutputDebugStringA("W & WASDOWN")
-            }
+            NewInput.keys[.UP].endedDown = (keycode == 'W')
+            NewInput.keys[.DOWN].endedDown = (keycode == 'S')
+            NewInput.keys[.LEFT].endedDown = (keycode == 'A')
+            NewInput.keys[.RIGHT].endedDown = (keycode == 'D')
             if keycode == win.VK_ESCAPE {
                 Running = false
             }
@@ -205,6 +208,7 @@ main :: proc() {
         message: win.MSG
         offset := [2]u8{}
         for Running {
+            NewInput = {}
             for win.PeekMessageW(&message, nil, 0, 0, win.PM_REMOVE) {
                 if message.message == win.WM_QUIT do Running = false
 
@@ -236,6 +240,11 @@ main :: proc() {
                     stickX := gamepad.sThumbLX
                     stickY := gamepad.sThumbLY
 
+                    if up   do NewInput.keys[.UP]      = { halfTransitionTime = 1, endedDown = true }
+                    if down do NewInput.keys[.DOWN]    = { halfTransitionTime = 1, endedDown = true }
+                    if right do NewInput.keys[.RIGHT]  = { halfTransitionTime = 1, endedDown = true }
+                    if left do NewInput.keys[.LEFT]    = { halfTransitionTime = 1, endedDown = true }
+
                 } else {
                     // controller not available
                 }
@@ -249,6 +258,7 @@ main :: proc() {
                     width  = OffscreenBuffer.width,
                     pitch  = OffscreenBuffer.pitch,
                 },
+                NewInput,
             )
             Win32_UpdateWindow(&OffscreenBuffer, deviceContext, Win32_GetClientRect(window))
 
