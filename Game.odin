@@ -2,6 +2,21 @@ package hmh
 
 import "core:mem"
 
+RELEASE :: 0
+DEBUG_SPEED :: 1
+DEBUG_CHECKS :: 2
+
+BUILD_MODE :: #config(BUILD_MODE, DEBUG_SPEED)
+
+Game_Memory :: struct {
+    isInitialized: bool,
+    permanentStorage: []byte, // REQUIRED to be cleared to 0 by platform
+    temporaryStorage: []byte, // REQUIRED to be cleared to 0 by platform
+}
+Game_State :: struct {
+    offset: [2]u8
+}
+GameState : ^Game_State
 
 Game_OffscreenBuffer :: struct {
     memory: rawptr,
@@ -26,16 +41,28 @@ Game_KeyInput :: struct {
     keys: [Game_Key]Game_ButtonState,
 }
 
-Game_UpdateAndRender :: proc(buffer: Game_OffscreenBuffer, input: Game_KeyInput) {
-    @static offset: [2]u8
+import "core:fmt"
+Game_UpdateAndRender :: proc(memory: ^Game_Memory, buffer: Game_OffscreenBuffer, input: Game_KeyInput) {
+    GameState = cast(^Game_State)(&(memory.permanentStorage[0]))
+
+    if !memory.isInitialized {
+        fmt.println(BUILD_MODE)
+        when BUILD_MODE == DEBUG_CHECKS {
+            // Atrocious startup time:
+            for b in memory.permanentStorage do assert(b == 0)
+            for b in memory.temporaryStorage do assert(b == 0)
+        }
+        memory.isInitialized = true
+        GameState.offset = {}
+    }
 
     keys := input.keys
-    if keys[.UP].endedDown          do offset.y -= 1
-    else if keys[.DOWN].endedDown   do offset.y += 1
-    if keys[.RIGHT].endedDown       do offset.x -= 1
-    else if keys[.LEFT].endedDown   do offset.x += 1
+    if keys[.UP].endedDown          do GameState.offset.y -= 1
+    else if keys[.DOWN].endedDown   do GameState.offset.y += 1
+    if keys[.RIGHT].endedDown       do GameState.offset.x -= 1
+    else if keys[.LEFT].endedDown   do GameState.offset.x += 1
 
-    Game_RenderTrippyShtuff(buffer, offset)
+    Game_RenderTrippyShtuff(buffer, GameState.offset)
 
 }
 

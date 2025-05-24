@@ -4,6 +4,7 @@ package hmh
 import win "core:sys/windows"
 import "core:mem"
 import "core:fmt"
+import "base:runtime"
 
 Running: bool = true
 
@@ -202,6 +203,19 @@ main :: proc() {
 
         Win32_InitDSound()
 
+        gameMemory: Game_Memory
+        {
+            storageSize:uint = 64 * runtime.Megabyte
+            ptr: rawptr = win.VirtualAlloc(nil, storageSize, win.MEM_RESERVE|win.MEM_COMMIT, win.PAGE_READWRITE)
+            assert(ptr != nil)
+            gameMemory.permanentStorage = (cast([^]byte)(ptr))[:storageSize]
+
+            storageSize = 2 * runtime.Gigabyte
+            ptr = win.VirtualAlloc(nil, storageSize, win.MEM_RESERVE|win.MEM_COMMIT, win.PAGE_READWRITE)
+            assert(ptr != nil)
+            gameMemory.temporaryStorage = (cast([^]byte)(ptr))[:storageSize]
+        }
+
         latestCounter: win.LARGE_INTEGER
         win.QueryPerformanceCounter(&latestCounter)
 
@@ -252,6 +266,7 @@ main :: proc() {
 
             deviceContext := win.GetDC(window)
             Game_UpdateAndRender(
+                &gameMemory,
                 Game_OffscreenBuffer{
                     memory = OffscreenBuffer.memory,
                     height = OffscreenBuffer.height,
