@@ -273,7 +273,12 @@ main :: proc() {
         newInput: Game_KeyInput
         oldInput: Game_KeyInput
 
+
         for Running {
+
+            for keyInput, i in newInput.keys {
+                oldInput.keys[i] = keyInput
+            }
             for win.PeekMessageW(&message, nil, 0, 0, win.PM_REMOVE) {
                 if message.message == win.WM_QUIT do Running = false
 
@@ -290,16 +295,13 @@ main :: proc() {
 
                     // Only process keyup, when it wasn't down previous frame, and now it is, or reversed.
                     if wasDown != isDown {
-                        if keycode == win.VK_ESCAPE {
-                            Running = false
+                        switch keycode {
+                        case 'W': newInput.keys[.UP].endedDown      = (message.message == win.WM_KEYDOWN)
+                        case 'S': newInput.keys[.DOWN].endedDown    = (message.message == win.WM_KEYDOWN)
+                        case 'A': newInput.keys[.LEFT].endedDown    = (message.message == win.WM_KEYDOWN)
+                        case 'D': newInput.keys[.RIGHT].endedDown   = (message.message == win.WM_KEYDOWN)
+                        case win.VK_ESCAPE: Running = false
                         }
-                    }
-
-                    if isDown {
-                        newInput.keys[.UP].endedDown = (keycode == 'W')
-                        newInput.keys[.DOWN].endedDown = (keycode == 'S')
-                        newInput.keys[.LEFT].endedDown = (keycode == 'A')
-                        newInput.keys[.RIGHT].endedDown = (keycode == 'D')
                     }
 
                     altKeyWasDown := bool(message.lParam & (1 << 29))
@@ -371,12 +373,6 @@ main :: proc() {
             fmt.println(millisecondsPerFrame, "ms/Frame\t|\t", framesPerSecond, "FPS")
 
             latestCounter = endCounter
-            {
-                tmp: Game_KeyInput = newInput
-                newInput = oldInput
-                oldInput = newInput
-
-            }
         }
     } else do panic("[!] Failed to register window")
 }
