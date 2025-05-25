@@ -164,9 +164,6 @@ Win32_DEBUG_WriteEntireFile :: proc(fileName: string, memory: []byte) -> (ok: bo
 }
 
 
-NewInput: Game_KeyInput
-OldInput: Game_KeyInput
-
 Win32_ProcessKeyboardMessage :: proc() {
 
 }
@@ -272,8 +269,11 @@ main :: proc() {
 
         message: win.MSG
         offset := [2]u8{}
+
+        newInput: Game_KeyInput
+        oldInput: Game_KeyInput
+
         for Running {
-            NewInput = {}
             for win.PeekMessageW(&message, nil, 0, 0, win.PM_REMOVE) {
                 if message.message == win.WM_QUIT do Running = false
 
@@ -290,13 +290,16 @@ main :: proc() {
 
                     // Only process keyup, when it wasn't down previous frame, and now it is, or reversed.
                     if wasDown != isDown {
-                        NewInput.keys[.UP].endedDown = (keycode == 'W')
-                        NewInput.keys[.DOWN].endedDown = (keycode == 'S')
-                        NewInput.keys[.LEFT].endedDown = (keycode == 'A')
-                        NewInput.keys[.RIGHT].endedDown = (keycode == 'D')
                         if keycode == win.VK_ESCAPE {
                             Running = false
                         }
+                    }
+
+                    if isDown {
+                        newInput.keys[.UP].endedDown = (keycode == 'W')
+                        newInput.keys[.DOWN].endedDown = (keycode == 'S')
+                        newInput.keys[.LEFT].endedDown = (keycode == 'A')
+                        newInput.keys[.RIGHT].endedDown = (keycode == 'D')
                     }
 
                     altKeyWasDown := bool(message.lParam & (1 << 29))
@@ -310,39 +313,39 @@ main :: proc() {
 
             }
 
-            for controlIndex: win.XUSER; controlIndex < cast(win.XUSER)win.XUSER_MAX_COUNT; controlIndex+=cast(win.XUSER)1 {
-                controllerState: win.XINPUT_STATE
-                sysError := win.XInputGetState(controlIndex, &controllerState)
-
-                if sysError == .SUCCESS {
-                    // controller plugged in
-                    gamepad := &controllerState.Gamepad
-
-                    up              := .DPAD_UP in gamepad.wButtons
-                    down            := .DPAD_DOWN in gamepad.wButtons
-                    left            := .DPAD_LEFT in gamepad.wButtons
-                    right           := .DPAD_RIGHT in gamepad.wButtons
-                    start           := .START in gamepad.wButtons
-                    back            := .BACK in gamepad.wButtons
-                    leftShoulder    := .LEFT_SHOULDER in gamepad.wButtons
-                    rightShoulder   := .RIGHT_SHOULDER in gamepad.wButtons
-                    aButton         := .A in gamepad.wButtons
-                    bButton         := .B in gamepad.wButtons
-                    xButton         := .X in gamepad.wButtons
-                    yButton         := .Y in gamepad.wButtons
-
-                    stickX := gamepad.sThumbLX
-                    stickY := gamepad.sThumbLY
-
-                    if up   do NewInput.keys[.UP]      = { halfTransitionTime = 1, endedDown = true }
-                    if down do NewInput.keys[.DOWN]    = { halfTransitionTime = 1, endedDown = true }
-                    if right do NewInput.keys[.RIGHT]  = { halfTransitionTime = 1, endedDown = true }
-                    if left do NewInput.keys[.LEFT]    = { halfTransitionTime = 1, endedDown = true }
-
-                } else {
-                    // controller not available
-                }
-            }
+            //for controlIndex: win.XUSER; controlIndex < cast(win.XUSER)win.XUSER_MAX_COUNT; controlIndex+=cast(win.XUSER)1 {
+            //    controllerState: win.XINPUT_STATE
+            //    sysError := win.XInputGetState(controlIndex, &controllerState)
+            //
+            //    if sysError == .SUCCESS {
+            //        // controller plugged in
+            //        gamepad := &controllerState.Gamepad
+            //
+            //        up              := .DPAD_UP in gamepad.wButtons
+            //        down            := .DPAD_DOWN in gamepad.wButtons
+            //        left            := .DPAD_LEFT in gamepad.wButtons
+            //        right           := .DPAD_RIGHT in gamepad.wButtons
+            //        start           := .START in gamepad.wButtons
+            //        back            := .BACK in gamepad.wButtons
+            //        leftShoulder    := .LEFT_SHOULDER in gamepad.wButtons
+            //        rightShoulder   := .RIGHT_SHOULDER in gamepad.wButtons
+            //        aButton         := .A in gamepad.wButtons
+            //        bButton         := .B in gamepad.wButtons
+            //        xButton         := .X in gamepad.wButtons
+            //        yButton         := .Y in gamepad.wButtons
+            //
+            //        stickX := gamepad.sThumbLX
+            //        stickY := gamepad.sThumbLY
+            //
+            //        if up   do newInput.keys[.UP]      = { halfTransitionTime = 1, endedDown = true }
+            //        if down do newInput.keys[.DOWN]    = { halfTransitionTime = 1, endedDown = true }
+            //        if right do newInput.keys[.RIGHT]  = { halfTransitionTime = 1, endedDown = true }
+            //        if left do newInput.keys[.LEFT]    = { halfTransitionTime = 1, endedDown = true }
+            //
+            //    } else {
+            //        // controller not available
+            //    }
+            //}
 
             deviceContext := win.GetDC(window)
             Game_UpdateAndRender(
@@ -353,7 +356,7 @@ main :: proc() {
                     width  = OffscreenBuffer.width,
                     pitch  = OffscreenBuffer.pitch,
                 },
-                NewInput,
+                newInput,
             )
             Win32_UpdateWindow(&OffscreenBuffer, deviceContext, Win32_GetClientRect(window))
 
@@ -368,6 +371,12 @@ main :: proc() {
             fmt.println(millisecondsPerFrame, "ms/Frame\t|\t", framesPerSecond, "FPS")
 
             latestCounter = endCounter
+            {
+                tmp: Game_KeyInput = newInput
+                newInput = oldInput
+                oldInput = newInput
+
+            }
         }
     } else do panic("[!] Failed to register window")
 }

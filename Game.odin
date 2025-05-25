@@ -41,12 +41,10 @@ Game_KeyInput :: struct {
     keys: [Game_Key]Game_ButtonState,
 }
 
-import "core:fmt"
 Game_UpdateAndRender :: proc(memory: ^Game_Memory, buffer: Game_OffscreenBuffer, input: Game_KeyInput) {
     GameState = cast(^Game_State)(&(memory.permanentStorage[0]))
 
     if !memory.isInitialized {
-        fmt.println(BUILD_MODE)
         when BUILD_MODE == DEBUG_CHECKS {
             // Atrocious startup time:
             for b in memory.permanentStorage do assert(b == 0)
