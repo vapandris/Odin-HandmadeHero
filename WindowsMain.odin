@@ -163,8 +163,13 @@ Win32_DEBUG_WriteEntireFile :: proc(fileName: string, memory: []byte) -> (ok: bo
     return ok
 }
 
+
 NewInput: Game_KeyInput
 OldInput: Game_KeyInput
+
+Win32_ProcessKeyboardMessage :: proc() {
+
+}
 
 Win32_WindowCallback :: proc "system" (
         window:  win.HWND,
@@ -183,27 +188,8 @@ Win32_WindowCallback :: proc "system" (
     case win.WM_SYSKEYUP:   fallthrough
     case win.WM_KEYDOWN:    fallthrough
     case win.WM_KEYUP:
-        keycode := u32(wParam)
-        wasDown := (lParam & (1 << 30)) != 0
-        isDown  := (lParam & (1 << 31)) == 0
-
-        // Only process keyup, when it wasn't down previous frame, and now it is, or reversed.
-        if wasDown != isDown {
-            NewInput.keys[.UP].endedDown = (keycode == 'W')
-            NewInput.keys[.DOWN].endedDown = (keycode == 'S')
-            NewInput.keys[.LEFT].endedDown = (keycode == 'A')
-            NewInput.keys[.RIGHT].endedDown = (keycode == 'D')
-            if keycode == win.VK_ESCAPE {
-                Running = false
-            }
-        }
-
-        altKeyWasDown := bool(lParam & (1 << 29))
-        if keycode == win.VK_F4 && altKeyWasDown {
-            Running = false
-        }
-
-
+        context = runtime.default_context()
+        panic("[!] Key-handling got called from implicit dispatch")
 
     case win.WM_CLOSE: 
         Running = false
@@ -291,8 +277,37 @@ main :: proc() {
             for win.PeekMessageW(&message, nil, 0, 0, win.PM_REMOVE) {
                 if message.message == win.WM_QUIT do Running = false
 
-                win.TranslateMessage(&message)
-                win.DispatchMessageW(&message)
+                switch message.message {
+                case win.WM_QUIT:
+                    Running = false
+                case win.WM_SYSKEYDOWN: fallthrough
+                case win.WM_SYSKEYUP:   fallthrough
+                case win.WM_KEYDOWN:    fallthrough
+                case win.WM_KEYUP:
+                    keycode := u32(message.wParam)
+                    wasDown := (message.lParam & (1 << 30)) != 0
+                    isDown  := (message.lParam & (1 << 31)) == 0
+
+                    // Only process keyup, when it wasn't down previous frame, and now it is, or reversed.
+                    if wasDown != isDown {
+                        NewInput.keys[.UP].endedDown = (keycode == 'W')
+                        NewInput.keys[.DOWN].endedDown = (keycode == 'S')
+                        NewInput.keys[.LEFT].endedDown = (keycode == 'A')
+                        NewInput.keys[.RIGHT].endedDown = (keycode == 'D')
+                        if keycode == win.VK_ESCAPE {
+                            Running = false
+                        }
+                    }
+
+                    altKeyWasDown := bool(message.lParam & (1 << 29))
+                    if keycode == win.VK_F4 && altKeyWasDown {
+                        Running = false
+                    }
+                case:
+                    win.TranslateMessage(&message)
+                    win.DispatchMessageW(&message)
+                }
+
             }
 
             for controlIndex: win.XUSER; controlIndex < cast(win.XUSER)win.XUSER_MAX_COUNT; controlIndex+=cast(win.XUSER)1 {
