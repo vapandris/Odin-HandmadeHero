@@ -210,9 +210,19 @@ Win32_WindowCallback :: proc "system" (
     return result
 }
 
+PerformanceQueryFrequency: win.LARGE_INTEGER
+
+Win32_GetSecondsElapsed :: proc(start: win.LARGE_INTEGER, end: win.LARGE_INTEGER) -> f32 {
+    return f32(end - start) / f32(PerformanceQueryFrequency)
+}
+
+Win32_GetWallClock :: proc() -> (result: win.LARGE_INTEGER) {
+    win.QueryPerformanceCounter(&result)
+    return result
+}
+
 main :: proc() {
-    performanceCountPerSecond: win.LARGE_INTEGER
-    win.QueryPerformanceFrequency(&performanceCountPerSecond)
+    win.QueryPerformanceFrequency(&PerformanceQueryFrequency)
 
     Win32_ResizeDIBSection(&OffscreenBuffer, {1280, 720})
 
@@ -264,8 +274,7 @@ main :: proc() {
         Win32_DEBUG_WriteEntireFile("test.out", transmute([]byte)(content[:]))
         Win32_DEBUG_WriteEntireFile("attack of the clones.0D1N", mainception)
 
-        latestCounter: win.LARGE_INTEGER
-        win.QueryPerformanceCounter(&latestCounter)
+        latestCounter := Win32_GetWallClock()
 
         message: win.MSG
         offset := [2]u8{}
@@ -364,12 +373,11 @@ main :: proc() {
 
             offset += {1, 1}
 
-            endCounter: win.LARGE_INTEGER
-            win.QueryPerformanceCounter(&endCounter)
+            endCounter := Win32_GetWallClock()
             elapsedCounter := endCounter - latestCounter
 
-            millisecondsPerFrame := (1000*elapsedCounter) / performanceCountPerSecond
-            framesPerSecond := performanceCountPerSecond / elapsedCounter
+            millisecondsPerFrame := (1000*elapsedCounter) / PerformanceQueryFrequency
+            framesPerSecond := PerformanceQueryFrequency / elapsedCounter
             fmt.println(millisecondsPerFrame, "ms/Frame\t|\t", framesPerSecond, "FPS")
 
             latestCounter = endCounter
