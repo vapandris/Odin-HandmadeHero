@@ -2,171 +2,12 @@
 package hmh
 
 import win "core:sys/windows"
-import "core:mem"
-import "core:fmt"
 import "base:runtime"
 
+// TODO: Remove
+import "core:fmt"
+
 Running: bool = true
-
-Win32_OffscreenBuffer :: struct {
-    info: win.BITMAPINFO,
-    memory: win.VOID,
-    height: win.LONG,
-    width:  win.LONG,
-    pitch:  win.LONG,
-}
-OffscreenBuffer: Win32_OffscreenBuffer
-WindowSize: [2]win.LONG
-
-Win32_Rect :: struct {
-    pos:  [2]win.LONG,
-    size: [2]win.LONG,
-}
-
-DirectSoundCreate :: #type proc "system" (win.LPCGUID, rawptr, win.LPUNKNOWN) -> win.HRESULT
-Win32_InitDSound :: proc () {
-    directSoundLib := win.LoadLibraryW(win.L("dsound.dll"))
-    if directSoundLib == nil do return
-
-    directSoundCreate := cast(DirectSoundCreate)win.GetProcAddress(directSoundLib, "DirectSoundCreate")
-    if directSoundCreate == nil do return
-}
-
-Win32_RenderTrippyShtuff :: proc "system" (buffer: Win32_OffscreenBuffer, offset: [2]u8) {
-    row := cast(^u8)buffer.memory
-    for y in 0..<buffer.height {
-        pixel := cast(^u32)row
-        for x in 0..<buffer.width {
-            // BLUE
-            blue  := cast(u8)x + offset.x
-            red   := cast(u8)(x*y)
-            green := cast(u8)y + offset.y
-
-            pixel^ = u32(red) << 16
-            pixel^ |= u32(green) << 8
-            pixel^ |= u32(blue) << 0
-
-            pixel = mem.ptr_offset(pixel, 1)
-        }
-        row = mem.ptr_offset(row, buffer.pitch)
-    }
-}
-
-Win32_GetRect :: #force_inline proc "system" (rect: win.RECT) -> Win32_Rect {
-    return {
-        pos = { rect.left, rect.top },
-        size = {
-            rect.right - rect.left,
-            rect.bottom - rect.top,
-        }
-    }
-}
-
-Win32_GetClientRect :: proc "system" (window: win.HWND) -> Win32_Rect {
-    rect: win.RECT
-    win.GetClientRect(window, &rect)
-    return Win32_GetRect(rect)
-}
-
-// DIB is Device Independent Bitmap
-Win32_ResizeDIBSection :: proc "system" (buffer: ^Win32_OffscreenBuffer, windowSize: [2]win.LONG) {
-    WindowSize = windowSize
-    buffer.width = windowSize.x
-    buffer.height = windowSize.y
-
-
-    buffer.info.bmiHeader.biSize = size_of(buffer.info.bmiHeader)
-    buffer.info.bmiHeader.biWidth = buffer.width
-    buffer.info.bmiHeader.biHeight = buffer.height
-    buffer.info.bmiHeader.biPlanes = 1
-    buffer.info.bmiHeader.biBitCount = 32
-    buffer.info.bmiHeader.biCompression = win.BI_RGB
-
-
-    BYTES_PER_PX :: 4
-    bitmapMemorySize : win.SIZE_T = win.SIZE_T(BYTES_PER_PX * buffer.width * buffer.height)
-    if buffer.memory != nil do win.VirtualFree(buffer.memory, 0, win.MEM_RELEASE)
-    buffer.memory = win.VirtualAlloc(nil, bitmapMemorySize, win.MEM_COMMIT, win.PAGE_READWRITE)
-
-    buffer.pitch = WindowSize.x*BYTES_PER_PX
-}
-
-Win32_UpdateWindow :: proc "system" (buffer: ^Win32_OffscreenBuffer, deviceContext: win.HDC, clientRect: Win32_Rect) {
-    win.StretchDIBits(
-        deviceContext,
-        0, 0, clientRect.size.x, clientRect.size.y,
-        0, 0, buffer.width, buffer.height,
-        buffer.memory,
-        &buffer.info,
-        win.DIB_RGB_COLORS,
-        win.SRCCOPY,
-    )
-}
-
-Win32_DEBUG_ReadEntireFile :: proc(fileName: string) -> []byte {
-    fileHandle := win.CreateFileW(
-        win.utf8_to_wstring(fileName),
-        win.GENERIC_READ,
-        win.FILE_SHARE_READ,
-        nil,
-        win.OPEN_EXISTING,
-        0, nil
-    )
-
-    if fileHandle == win.INVALID_HANDLE_VALUE do panic("[!] Failed to open file")
-
-    fileSizeBig: win.LARGE_INTEGER
-    if !win.GetFileSizeEx(fileHandle, &fileSizeBig) do panic("[!] Failed to get FileSize")
-
-    assert(fileSizeBig <= 0xFFFFFFFF)
-    fileSize := u32(fileSizeBig)
-
-    mem: rawptr = win.VirtualAlloc(nil, uint(fileSize), win.MEM_RESERVE|win.MEM_COMMIT, win.PAGE_READWRITE)
-    assert(mem != nil)
-
-    bytesRead: win.DWORD
-    if win.ReadFile(fileHandle, mem, fileSize, &bytesRead, nil) == false {
-        Win32_DEBUG_FreeFileMemory(mem)
-        mem = nil
-    }
-    assert(bytesRead == fileSize)
-
-    win.CloseHandle(fileHandle)
-
-    return (cast([^]byte)(mem))[:fileSize]
-}
-
-Win32_DEBUG_FreeFileMemory :: proc(memory: rawptr) {
-    win.VirtualFree(memory, 0, win.MEM_RELEASE)
-}
-
-Win32_DEBUG_WriteEntireFile :: proc(fileName: string, memory: []byte) -> (ok: bool) {
-    fileHandle := win.CreateFileW(
-        win.utf8_to_wstring(fileName),
-        win.GENERIC_WRITE,
-        0,
-        nil,
-        win.CREATE_ALWAYS,
-        0, nil
-    )
-
-    if fileHandle == win.INVALID_HANDLE_VALUE do panic("[!] Failed to open file")
-
-    bytesWritten: win.DWORD
-    if win.WriteFile(fileHandle, &(memory[0]), u32(len(memory)), &bytesWritten, nil) == true {
-        ok = true
-    } else {
-        panic("[!] Failed to write file")
-    }
-    assert(u32(len(memory)) == bytesWritten)
-
-    return ok
-}
-
-
-Win32_ProcessKeyboardMessage :: proc() {
-
-}
 
 Win32_WindowCallback :: proc "system" (
         window:  win.HWND,
@@ -207,17 +48,6 @@ Win32_WindowCallback :: proc "system" (
         result = win.DefWindowProcW(window, message, wParam, lParam)
     }
 
-    return result
-}
-
-PerformanceQueryFrequency: win.LARGE_INTEGER
-
-Win32_GetSecondsElapsed :: proc(start: win.LARGE_INTEGER, end: win.LARGE_INTEGER) -> f32 {
-    return f32(end - start) / f32(PerformanceQueryFrequency)
-}
-
-Win32_GetWallClock :: proc() -> (result: win.LARGE_INTEGER) {
-    win.QueryPerformanceCounter(&result)
     return result
 }
 
